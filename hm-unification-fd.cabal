@@ -1,0 +1,34 @@
+cabal-version:      2.4
+name:               hm-unification-fd
+version:            0.1.0.0
+synopsis:           An example implementation of the Hindley-Milner type system
+                    using the unification-fd package.
+
+description:        unification-fd is a very powerful and efficient library for doing
+                    first-order structural unification, exactly what is needed for
+                    implementing a Hindley-Milner type checker.  Unfortunately, although
+                    its documentation claims this as a use case, I could not find any
+                    example implementations of Hindley-Milner using it.  So I set out
+                    to create my own, and hope that it may be of use to others.
+
+bug-reports:        http://github.com/byorgey/hm-unification-fd/issues
+license:            BSD-3-Clause
+license-file:       LICENSE
+author:             Brent Yorgey
+maintainer:         byorgey@gmail.com
+
+copyright:          Brent Yorgey 2021
+category:           Language
+extra-source-files: CHANGELOG.md
+
+executable hm
+    main-is:          HindleyMilner.hs
+
+    build-depends:    base ^>=4.14.1.0,
+                      unification-fd >= 0.11 && < 0.12,
+                      mtl,
+                      parsec,
+                      containers,
+                      repline   >= 0.3.0.0,
+                      haskeline >= 0.8.0.0
+    default-language: Haskell2010
