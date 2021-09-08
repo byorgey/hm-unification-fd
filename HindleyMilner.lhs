@@ -5,6 +5,7 @@ title: "Implementing Hindley-Milner with the unification-fd library"
     [BLOpts]
     profile = wp
     postid = 2393
+    publish = true
     tags = unification, Hindley-Milner, types, inference
     categories = Haskell, teaching
 

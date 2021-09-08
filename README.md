@@ -3,7 +3,7 @@ using the [`unification-fd`
 library](https://hackage.haskell.org/package/unification%2Dfd).
 
 The code is a literate Haskell document which was [published as a blog
-post](XXX).
+post](https://byorgey.wordpress.com/2021/09/08/implementing-hindley-milner-with-the-unification-fd-library/).
 
 To build it yourself, just clone the repo and do `stack run`.
 
