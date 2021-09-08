@@ -1,4 +1,4 @@
-[![GitHub CI](https://github.com/byorgey/hm-unification-fd/workflows/CI/badge.svg)](https://github.com/byorgey/hm-unification-fd/actions)
+[![GitHub CI](https://github.com/byorgey/hm-unification-fd/workflows/haskell-ci.yml/badge.svg)](https://github.com/byorgey/hm-unification-fd/actions)
 
 A toy example showing how to implement Hindley-Milner type inference
 using the [`unification-fd`
