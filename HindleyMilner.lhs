@@ -74,8 +74,6 @@ You know the drill.
 > {-# LANGUAGE MultiParamTypeClasses #-}
 > {-# LANGUAGE PatternSynonyms       #-}
 > {-# LANGUAGE StandaloneDeriving    #-}
-> {-# LANGUAGE TemplateHaskell       #-}
-> {-# LANGUAGE TypeSynonymInstances  #-}
 > {-# LANGUAGE UndecidableInstances  #-}
 >
 > import           Control.Category ((>>>))
