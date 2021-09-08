@@ -1,8 +1,7 @@
 cabal-version:      2.4
 name:               hm-unification-fd
 version:            0.1.0.0
-synopsis:           An example implementation of the Hindley-Milner type system
-                    using the unification-fd package.
+synopsis:           Example implementation of Hindley-Milner using the unification-fd package.
 
 description:        unification-fd is a very powerful and efficient library for doing
                     first-order structural unification, exactly what is needed for
@@ -22,6 +21,10 @@ category:           Language
 extra-source-files: CHANGELOG.md
 
 tested-with:        GHC ==8.10.4 || ==9.0.1
+
+source-repository head
+  type:     git
+  location: git://github.com/byorgey/hm-unification-fd.git
 
 executable hm
     main-is:          HindleyMilner.lhs
