@@ -516,16 +516,17 @@ by calling `applyBindings`.  Any unification variables which still
 remain after `applyBindings` really are unconstrained so far.  So
 after `applyBindings`, we get the free unification variables from the
 type, subtract off any unification variables which are free in the
-context, and close over the remaining unification variables with a
-`forall`, substituting normal type variables for them.  It does not
-particularly matter if these type variables are fresh (so long as they
-are distinct).  Also, note that here is the reason that our `freeVars`
-function needs to find both free type and unification variables.  It's
-clear that we want to find free unification variables to generalize
-over, but we might have some free type variables too, if we previously
-generated some Skolem variables while checking a polymorphic type. (A
-term which illustrates this behavior is `\y. let x : forall a. a -> a
-= y in x 3`.)  Free Skolem variables should also be generalized over.
+context, and close over the remaining variables with a `forall`,
+substituting normal type variables for them.  It does not particularly
+matter if these type variables are fresh (so long as they are
+distinct).  But we can't look only at *unification* variables!  We
+have to look at free type variables too (this is the reason that our
+`freeVars` function needs to find both free type and unification
+variables).  Why is that?  Well, we might have some free type
+variables floating around if we previously generated some Skolem
+variables while checking a polymorphic type. (A term which illustrates
+this behavior is `\y. let x : forall a. a -> a = y in x 3`.)  Free
+Skolem variables should also be generalized over.
 
 > generalize :: UType -> Infer UPolytype
 > generalize uty = do
@@ -542,10 +543,9 @@ Finally, we need a way to convert `Polytype`s entered by the user into
 `Polytype`.  `unification-fd` provides functions `unfreeze : Fix t ->
 UTerm t v` and `freeze : UTerm t v -> Maybe (Fix t)` to convert
 between terms built with `UTerm` (with unification variables) and
-`Fix` (without unification variables).
-
-Converting to `UPolytype` is easy: we just use `unfreeze` to convert
-the underlying `Type` to a `UType`.
+`Fix` (without unification variables).  Converting to `UPolytype` is
+easy: we just use `unfreeze` to convert the underlying `Type` to a
+`UType`.
 
 > toUPolytype :: Polytype -> UPolytype
 > toUPolytype = fmap unfreeze
@@ -556,7 +556,7 @@ careful to only use `fromUPolytype` when we know there are no
 unification variables remaining in a polytype.  In fact, we will use
 this only at the very top level, after generalizing the type that
 results from inference over a top-level term.  Since at the top level
-we only perform inference on closed terms, *i.e.* in an empty type
+we only perform inference on closed terms, in an empty type
 context, the final `generalize` step will generalize over all the
 remaining free unification variables, since there will be no free
 variables in the context.
@@ -635,7 +635,7 @@ with `-XMonoLocalBinds` enabled, which is automatically implied by
 >   pty <- generalize ty
 >   withBinding x pty $ infer body
 
-For a `let` expression with a type annotation, we skolemize it and
+For a `let` expression with a type annotation, we `skolemize` it and
 `check` the definition with the skolemized type; the rest is the same
 as the previous case.
 
@@ -932,8 +932,3 @@ Pretty printing
 >     where
 >       bindings = map prettyBinding (M.assocs env)
 >       prettyBinding (x, v) = x ++ " -> " ++ pretty v
-
--- (\y. let x : forall a. a -> a = y in x 3)    -- has skolems in it!
--- (\x. let y = x in y)    -- had to fix generalize so it returns a UPolytype,
---                         -- polytypes can have free unification vars in them
--- let f : forall a. a -> a = \x.x in let y : forall b. b -> b -> b = \z.\q. f z in y 2 3
