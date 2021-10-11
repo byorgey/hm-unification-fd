@@ -312,46 +312,32 @@ like so:
 Now, we can write some utilities for finding free variables.
 Inexplicably, `IntVar` does not have an `Ord` instance (even though it
 is literally just a `newtype` over `Int`), so we have to derive one if
-we want to store them in a `Set`.  Notice that our `freeVars` function
-finds free unification variables *and* free type variables; I will
-talk about why we need this later (this is something I got wrong at
-first!).
+we want to store them in a `Set`.  Note that our `freeVars` function
+finds only free unification variables; a previous version of this
+document claimed that we need it to return both unification and type
+variables, but this turns out to be unnecessary.  The only reason it
+needed to find free type variables was so we could generalize over
+Skolem variables, which is wrong (more on this later).
 
 > deriving instance Ord IntVar
 >
 > class FreeVars a where
->   freeVars :: a -> Infer (Set (Either Var IntVar))
+>   freeVars :: a -> Infer (Set IntVar)
 
-Finding the free variables in a `UType` is our first application of
-`ucata`.  First, to find the free unification variables, we just use
-the `getFreeVars` function provided by `unification-fd` and massage
-the output into the right form.  To find free type variables, we fold
-using `ucata`: we ignore unification variables, capture a singleton
-set in the `TyVarF` case, and in the recursive case we call `fold`,
-which will turn a `TypeF (Set ...)` into a `Set ...` using the
-`Monoid` instance for `Set`, *i.e.* `union`.
+To find the free unification variables in a `UType`, we just use the
+`getFreeVars` function provided by `unification-fd` and massage the
+output into the right form.
 
 > instance FreeVars UType where
->   freeVars ut = do
->     fuvs <- fmap (S.fromList . map Right) . lift . lift $ getFreeVars ut
->     let ftvs = ucata (const S.empty)
->                      (\case {TyVarF x -> S.singleton (Left x); f -> fold f})
->                      ut
->     return $ fuvs `S.union` ftvs
-
-Why don't we just find free unification variables with `ucata` at the
-same time as the free type variables, and forget about using
-`getFreeVars`?  Well, I looked at the source, and `getFreeVars` is
-actually a complicated beast. I'm really not sure what it's doing, and
-I don't trust that just manually getting the unification variables
-ourselves would be doing the right thing!
+>   freeVars ut = fmap S.fromList . lift . lift $ getFreeVars ut
 
 Now we can leverage the above instance to find free varaibles in
-`UPolytype`s and type contexts.  For a `UPolytype`, we of course have
-to subtract off any variables bound by the `forall`.
+`UPolytype`s and type contexts.  For a `UPolytype`, note that we don't
+have to subtract off any variables bound by the `forall`, since a
+`forall` can't bind unification variables.
 
 > instance FreeVars UPolytype where
->   freeVars (Forall xs ut) = (\\ (S.fromList (map Left xs))) <$> freeVars ut
+>   freeVars (Forall _ ut) = freeVars ut
 >
 > instance FreeVars Ctx where
 >   freeVars = fmap S.unions . mapM freeVars . M.elems
@@ -380,9 +366,10 @@ we just need to provide two specific constructors to represent an
 mismatch failure.
 
 > data TypeError where
->   UnboundVar   :: String -> TypeError
->   Infinite     :: IntVar -> UType -> TypeError
->   Mismatch     :: TypeF UType -> TypeF UType -> TypeError
+>   UnboundVar    :: String -> TypeError
+>   EscapedSkolem :: Var -> TypeError
+>   Infinite      :: IntVar -> UType -> TypeError
+>   Mismatch      :: TypeF UType -> TypeF UType -> TypeError
 >
 > instance Fallible TypeF IntVar TypeError where
 >   occursFailure   = Infinite
@@ -518,14 +505,7 @@ type, subtract off any unification variables which are free in the
 context, and close over the remaining variables with a `forall`,
 substituting normal type variables for them.  It does not particularly
 matter if these type variables are fresh (so long as they are
-distinct).  But we can't look only at *unification* variables!  We
-have to look at free type variables too (this is the reason that our
-`freeVars` function needs to find both free type and unification
-variables).  Why is that?  Well, we might have some free type
-variables floating around if we previously generated some Skolem
-variables while checking a polymorphic type. (A term which illustrates
-this behavior is `\y. let x : forall a. a -> a = y in x 3`.)  Free
-Skolem variables should also be generalized over.
+distinct).
 
 > generalize :: UType -> Infer UPolytype
 > generalize uty = do
@@ -534,8 +514,20 @@ Skolem variables should also be generalized over.
 >   tmfvs  <- freeVars uty'
 >   ctxfvs <- freeVars ctx
 >   let fvs = S.toList $ tmfvs \\ ctxfvs
->       xs  = map (either id (mkVarName "a")) fvs
->   return $ Forall xs (substU (M.fromList (zip fvs (map UTyVar xs))) uty')
+>       xs  = map (mkVarName "a") fvs
+>   return $ Forall xs (substU (M.fromList (zip (map Right fvs) (map UTyVar xs))) uty')
+
+A previous version of this post claimed that we should *also*
+generalize over Skolem variables, but that was actually wrong.  Many
+thanks to Ilya Smirnov for [pointing out the
+error](https://byorgey.wordpress.com/2021/09/08/implementing-hindley-milner-with-the-unification-fd-library/#comment-40016).
+There *should never* be any Skolem variables remaining in a type we
+are generalizing over (unless we intend to [implement a system with
+higher-rank
+types](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/putting.pdf)!).
+At this point we simply take this as an invariant, meaning the code
+above does not have to worry about Skolem variables at all; the code
+to enforce this invariant is later, in the `infer` function.
 
 Finally, we need a way to convert `Polytype`s entered by the user into
 `UPolytypes`, and a way to convert the final `UPolytype` back into a
@@ -635,14 +627,53 @@ with `-XMonoLocalBinds` enabled, which is automatically implied by
 >   withBinding x pty $ infer body
 
 For a `let` expression with a type annotation, we `skolemize` it and
-`check` the definition with the skolemized type; the rest is the same
-as the previous case.
+`check` the definition with the skolemized type.  We also have to be
+careful to ensure that the skolem variables don't "escape": if a
+skolem variable unifies with something from outside the context of the
+`let`, it indicates that some kind of higher-rank type would be
+needed.  A previous version of this post gave the example `\y. let x :
+forall a. a -> a = y in x 3`, which is actually a perfect example of a
+term that should *not* type check.  Since `x` is supposed to have type
+`forall a. a -> a` and is assigned the definition `y`, then `y` must
+also have the same type; meaning the whole thing must have type
+`(forall a. a -> a) -> nat`, which is a rank-2 type.  However, in this
+case we can tell that something goes wrong when we notice that
+something involving the skolem variable generated for the type of `x`
+unifies with the type of `y` in the outer context.
 
 > infer (ELet x (Just pty) xdef body) = do
 >   let upty = toUPolytype pty
 >   upty' <- skolemize upty
 >   check xdef upty'
+>   guardSkolems
 >   withBinding x upty $ infer body
+
+The `guardSkolems` function ensures that after checking the definition
+of `x`, there are no skolem variables which have leaked into the
+outer context via unification.
+
+> guardSkolems :: Infer ()
+> guardSkolems = ask >>= mapM_ noSkolems
+
+`noSkolems` ensures there are no Skolem variables, *i.e.* free type
+variables, in a `UPolytype`.  We first call `applyBindings` to make
+sure that Skolem variables aren't hiding behind a substitution.  Then
+we find the free type variables in `upty` using `ucata`: we ignore
+unification variables, capture a singleton set in the `TyVarF` case,
+and in the recursive case we call `fold`, which will turn a `TypeF
+(Set ...)` into a `Set ...` using the `Monoid` instance for `Set`,
+*i.e.* `union`.  We then subtract off any variables which are bound by
+the `Forall`.  We throw an error if there are any free variables left.
+
+> noSkolems :: UPolytype -> Infer ()
+> noSkolems (Forall xs upty) = do
+>   upty' <- applyBindings upty
+>   let tyvs = ucata (const S.empty)
+>                    (\case {TyVarF x -> S.singleton x; f -> fold f})
+>                    upty'
+>       ftyvs = tyvs `S.difference` S.fromList xs
+>   unless (S.null ftyvs) $
+>     throwError $ EscapedSkolem (head (S.toList ftyvs))
 
 Running the `Infer` monad
 -------------------------
@@ -735,7 +766,7 @@ HM> let f : forall a. a -> a = \x.x in let y : forall b. b -> b -> b = \z.\q. f 
 let f : forall a. a -> a = \x. x in let y : forall b. b -> b -> b = \z. \q. f z in y 2 3 : nat
 2
 HM> \y. let x : forall a. a -> a = y in x 3
-\y. let x : forall a. a -> a = y in x 3 : forall s1. (s1 -> s1) -> nat
+Escaped skolem s1
 HM> (\x. let y = x in y) (\z. \q. z)
 (\x. let y = x in y) (\z. \q. z) : forall a1 a2. a1 -> a2 -> a1
 ```
@@ -917,6 +948,7 @@ Pretty printing
 >
 > instance Pretty TypeError where
 >   pretty (UnboundVar x)     = printf "Unbound variable %s" x
+>   pretty (EscapedSkolem x)  = printf "Escaped skolem %s" x
 >   pretty (Infinite x ty)    = printf "Infinite type %s = %s" (pretty x) (pretty ty)
 >   pretty (Mismatch ty1 ty2) = printf "Can't unify %s and %s" (pretty ty1) (pretty ty2)
 >
